@@ -1,6 +1,8 @@
 # ausum - Audio Summarization
 
-Automatically transcribe YouTube videos using local AI (FluidAudio Parakeet) and generate summaries with Claude.
+Automatically transcribe YouTube videos using local AI (FluidAudio Parakeet) and generate summaries with Claude Code.
+
+This has only been used and tested on macOS.
 
 ## Features
 
@@ -51,7 +53,9 @@ pipx install .
 
 ```bash
 # Basic usage
-ausum "https://www.youtube.com/watch?v=VIDEO_ID"
+ausum https://www.youtube.com/watch?v=VIDEO_ID
+
+# Note: Add quotes around URL if you're having issues. 
 
 # Override saved directory for a single run
 ausum "https://www.youtube.com/watch?v=VIDEO_ID" -d ~/my-transcripts
@@ -88,6 +92,8 @@ Summaries follow the structure defined in `transcript-summary.md`:
 - Concise bullet points of key points
 - Step-by-step instructions (if applicable)
 - Next steps for learning more
+
+You can edit the prompt in `ausum.py` if you want some customization. 
 
 ## License
 
