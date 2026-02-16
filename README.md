@@ -2,7 +2,11 @@
 
 Automatically transcribe YouTube videos using local AI (FluidAudio Parakeet) and generate summaries with Claude Code.
 
-This has only been used and tested on macOS.
+This is a tool built for macOS.
+
+## Why?
+
+Reading is faster than watching videos. For certain types of videos I find it faster to read a detailed summary versus watching the video at a faster speed.
 
 ## Features
 
