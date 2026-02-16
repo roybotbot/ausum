@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -21,6 +22,68 @@ If the transcript describes building, making, or producing anything, extract a c
 End with a short list of next steps for learning more or improving on the topic.
 
 Stay factual. No filler. No invented content."""
+
+
+def get_config_path() -> Path:
+    """Get path to config file."""
+    config_dir = Path.home() / ".config" / "ausum"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    return config_dir / "config.json"
+
+
+def load_config() -> dict:
+    """Load config from file or return empty dict."""
+    config_path = get_config_path()
+    if config_path.exists():
+        try:
+            return json.loads(config_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            return {}
+    return {}
+
+
+def save_config(config: dict) -> None:
+    """Save config to file."""
+    config_path = get_config_path()
+    config_path.write_text(json.dumps(config, indent=2))
+
+
+def get_output_directory() -> Path:
+    """Get output directory, prompting user on first run."""
+    config = load_config()
+    
+    # If we have a saved directory, use it
+    if "output_dir" in config:
+        return Path(config["output_dir"]).expanduser()
+    
+    # First run - prompt user
+    default_dir = Path("~/Documents").expanduser()
+    
+    if default_dir.exists():
+        prompt = f"Where should transcripts be saved? (default: {default_dir})\nPress Enter for default, or enter a path: "
+    else:
+        prompt = "Where should transcripts be saved? Enter a directory path: "
+    
+    user_input = input(prompt).strip()
+    
+    if user_input:
+        output_dir = Path(user_input).expanduser()
+    elif default_dir.exists():
+        output_dir = default_dir
+    else:
+        print("No default directory available. Please enter a valid path.", file=sys.stderr)
+        sys.exit(1)
+    
+    # Create directory if it doesn't exist
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Save to config
+    config["output_dir"] = str(output_dir)
+    save_config(config)
+    
+    print(f"Saving transcripts to: {output_dir}", file=sys.stderr)
+    
+    return output_dir
 
 
 def check_command(cmd: str) -> bool:
@@ -141,7 +204,7 @@ def download_and_convert_audio(url: str, output_wav: Path) -> None:
 
 def check_parakeet_model_cache() -> bool:
     """Check if Parakeet model is already cached."""
-    cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
+    cache_dir = Path.home() / "Library" / "Application Support" / "FluidAudio" / "Models"
     if not cache_dir.exists():
         return False
     
@@ -184,9 +247,10 @@ def summarize_transcript(transcript: str) -> str:
     # Build prompt
     prompt = f"{SUMMARY_INSTRUCTIONS}\n\nTranscript:\n\n{transcript}"
     
-    # Run Claude
+    # Run Claude in non-interactive mode with prompt via stdin
     result = subprocess.run(
-        ["claude", "-p", prompt],
+        ["claude", "--print"],
+        input=prompt,
         capture_output=True,
         text=True
     )
@@ -210,7 +274,7 @@ def main() -> int:
     parser.add_argument("url", help="YouTube URL")
     parser.add_argument(
         "-d", "--outdir",
-        help="Output directory (default: ~/Documents/Transcripts/Youtube)"
+        help="Output directory (overrides saved preference)"
     )
     
     args = parser.parse_args()
@@ -221,10 +285,9 @@ def main() -> int:
     # Setup output directory
     if args.outdir:
         outdir = Path(args.outdir).expanduser()
+        outdir.mkdir(parents=True, exist_ok=True)
     else:
-        outdir = Path("~/Documents/Transcripts/Youtube").expanduser()
-    
-    outdir.mkdir(parents=True, exist_ok=True)
+        outdir = get_output_directory()
     
     # Get video title for filenames
     print("Getting video title...", file=sys.stderr)
