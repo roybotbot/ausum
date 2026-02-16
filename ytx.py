@@ -159,6 +159,35 @@ def transcribe_audio(wav_path: Path) -> str:
     return transcript
 
 
+def summarize_transcript(transcript: str) -> str:
+    """Summarize transcript using Claude."""
+    # Load summary instructions
+    instructions_file = Path(__file__).parent / "transcript-summary.md"
+    if not instructions_file.exists():
+        raise RuntimeError(f"Summary instructions not found: {instructions_file}")
+    
+    instructions = instructions_file.read_text()
+    
+    # Build prompt
+    prompt = f"{instructions}\n\nTranscript:\n\n{transcript}"
+    
+    # Run Claude
+    result = subprocess.run(
+        ["claude", "-p", prompt],
+        capture_output=True,
+        text=True
+    )
+    
+    if result.returncode != 0:
+        raise RuntimeError(f"Summarization failed: {result.stderr.strip()}")
+    
+    summary = result.stdout.strip()
+    if not summary:
+        raise RuntimeError("Summarization produced no output")
+    
+    return summary
+
+
 if __name__ == "__main__":
     check_prerequisites()
     if len(sys.argv) > 1:
