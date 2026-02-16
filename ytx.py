@@ -119,6 +119,20 @@ def download_and_convert_audio(url: str, output_wav: Path) -> None:
             raise RuntimeError(f"Failed to convert audio: {result.stderr.strip()}")
 
 
+def check_parakeet_model_cache() -> bool:
+    """Check if Parakeet model is already cached."""
+    cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
+    if not cache_dir.exists():
+        return False
+    
+    # Look for any parakeet model directory
+    for item in cache_dir.iterdir():
+        if item.is_dir() and "parakeet-tdt" in item.name.lower():
+            return True
+    
+    return False
+
+
 if __name__ == "__main__":
     check_prerequisites()
     if len(sys.argv) > 1:
