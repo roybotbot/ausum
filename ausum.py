@@ -11,19 +11,35 @@ import tempfile
 from pathlib import Path
 
 
-SUMMARY_INSTRUCTIONS = """Create a markdown summary of the following transcript. Output ONLY the markdown summary, no meta-commentary.
+SUMMARY_INSTRUCTIONS = """Create a comprehensive markdown summary of the following transcript. Output ONLY the markdown summary, no meta-commentary.
 
-Format:
-- Major sections with short headers
-- Under each section, concise bullets of key points
-- If the transcript describes building/making/producing anything, include a clear step-by-step list
-- End with next steps for learning more
+Structure:
+
+1. **Overview** (2-3 paragraphs)
+   - High-level synthesis of the main concepts and first principles
+   - Core thesis or central argument
+   - Why this matters
+
+2. **Detailed Summary**
+   - Major sections with descriptive headers
+   - Under each section, detailed bullets that explain:
+     * What the concept/point is
+     * Why it matters
+     * How it works or applies
+     * Examples or context from the transcript
+   - If the transcript describes building/making/producing anything, include a clear step-by-step list with explanations
+   - Include relevant quotes, data, or specific examples mentioned
+
+3. **Next Steps**
+   - Actionable recommendations for learning more
+   - Key resources or concepts to explore further
 
 Requirements:
+- Add substance to each bullet - avoid sparse one-liners
 - Stay factual - no filler or invented content
 - Output the summary directly - do not describe what you would do
 - Do not ask for confirmation or approval
-- Start immediately with the first section header"""
+- Start immediately with "## Overview" """
 
 
 def get_config_path() -> Path:
