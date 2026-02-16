@@ -40,7 +40,8 @@ Requirements:
 - Stay factual - no filler or invented content
 - Output the summary directly - do not describe what you would do
 - Do not ask for confirmation or approval
-- Start immediately with "## Overview" """
+- Start immediately with" #[Title of Youtube Video] - Summary
+- Then begin first section with "## Overview" """
 
 
 def get_config_path() -> Path:
