@@ -15,10 +15,11 @@ SUMMARY_INSTRUCTIONS = """Create a comprehensive markdown summary of the followi
 
 Structure:
 
-1. **Overview** (2-3 paragraphs)
-   - High-level synthesis of the main concepts and first principles
+1. **Overview** (bullet list)
+   - High-level concepts and first principles as skimmable bullets
    - Core thesis or central argument
-   - Why this matters
+   - Key takeaways and why this matters
+   - Each bullet should be a complete, standalone point
 
 2. **Detailed Summary**
    - Major sections with descriptive headers
