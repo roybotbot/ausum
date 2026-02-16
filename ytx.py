@@ -133,6 +133,32 @@ def check_parakeet_model_cache() -> bool:
     return False
 
 
+def transcribe_audio(wav_path: Path) -> str:
+    """Transcribe audio using FluidAudio Parakeet."""
+    fluidaudio_path = Path(os.environ["FLUIDAUDIO_PATH"])
+    
+    # Check if model needs downloading
+    if not check_parakeet_model_cache():
+        print("Downloading Parakeet model (~600MB), this only happens once...", file=sys.stderr)
+    
+    # Run transcription
+    result = subprocess.run(
+        ["swift", "run", "fluidaudio", "transcribe", str(wav_path)],
+        cwd=str(fluidaudio_path),
+        capture_output=True,
+        text=True
+    )
+    
+    if result.returncode != 0:
+        raise RuntimeError(f"Transcription failed: {result.stderr.strip()}")
+    
+    transcript = result.stdout.strip()
+    if not transcript:
+        raise RuntimeError("Transcription produced no output")
+    
+    return transcript
+
+
 if __name__ == "__main__":
     check_prerequisites()
     if len(sys.argv) > 1:
