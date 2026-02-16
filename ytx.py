@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -69,6 +70,53 @@ def get_video_title(url: str) -> str:
     
     title = result.stdout.strip()
     return sanitize_filename(title) if title else "untitled"
+
+
+def download_and_convert_audio(url: str, output_wav: Path) -> None:
+    """Download YouTube audio and convert to 16kHz mono WAV."""
+    with tempfile.TemporaryDirectory(prefix="ytx_") as tmpdir:
+        # Download as best audio
+        audio_file = Path(tmpdir) / "audio"
+        result = subprocess.run(
+            [
+                "yt-dlp",
+                "--no-warnings",
+                "-f", "bestaudio",
+                "-o", str(audio_file),
+                url,
+            ],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to download audio: {result.stderr.strip()}")
+        
+        # Find the actual downloaded file (yt-dlp adds extension)
+        downloaded = None
+        for ext in [".m4a", ".webm", ".opus", ".mp3"]:
+            candidate = Path(f"{audio_file}{ext}")
+            if candidate.exists():
+                downloaded = candidate
+                break
+        
+        if not downloaded:
+            raise RuntimeError("Audio downloaded but file not found")
+        
+        # Convert to 16kHz mono WAV for FluidAudio
+        result = subprocess.run(
+            [
+                "ffmpeg",
+                "-i", str(downloaded),
+                "-ar", "16000",
+                "-ac", "1",
+                "-y",  # overwrite
+                str(output_wav),
+            ],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to convert audio: {result.stderr.strip()}")
 
 
 if __name__ == "__main__":
