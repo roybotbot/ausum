@@ -37,8 +37,8 @@ export FLUIDAUDIO_PATH=~/path/to/FluidAudio
 
 ```bash
 # Clone this repo
-git clone https://github.com/roybotbot/ytx-caption-downloader.git
-cd ytx-caption-downloader
+git clone https://github.com/roybotbot/ausum.git
+cd ausum
 
 # Install with pip
 pip install .
