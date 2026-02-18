@@ -155,18 +155,53 @@ def sanitize_filename(name: str, max_len: int = 180) -> str:
     return name
 
 
+def is_url(input_str: str) -> bool:
+    """Check if input is a URL."""
+    return input_str.startswith(("http://", "https://", "www."))
+
+
 def get_video_title(url: str) -> str:
-    """Get video title from YouTube URL."""
+    """Get video title from URL."""
     result = subprocess.run(
-        ["yt-dlp", "--no-warnings", "--print", "%(title)s", url],
+        ["yt-dlp", "--no-warnings", "--impersonate", "chrome", "--print", "%(title)s", url],
         capture_output=True,
         text=True
     )
     if result.returncode != 0:
-        raise RuntimeError(f"Failed to get video title: {result.stderr.strip()}")
+        stderr = result.stderr.strip()
+        if "Unsupported URL" in stderr or "Unable to extract" in stderr or "no video" in stderr.lower():
+            raise RuntimeError(f"No video found at URL: {url}")
+        raise RuntimeError(f"Failed to get video title: {stderr}")
     
     title = result.stdout.strip()
     return sanitize_filename(title) if title else "untitled"
+
+
+def get_file_title(file_path: Path) -> str:
+    """Get title from local file path (filename without extension)."""
+    return sanitize_filename(file_path.stem)
+
+
+def convert_local_file_to_wav(input_file: Path, output_wav: Path) -> None:
+    """Convert local audio/video file to 16kHz mono WAV."""
+    if not input_file.exists():
+        raise RuntimeError(f"File not found: {input_file}")
+    
+    # Convert to 16kHz mono WAV for FluidAudio
+    result = subprocess.run(
+        [
+            "ffmpeg",
+            "-i", str(input_file),
+            "-ar", "16000",
+            "-ac", "1",
+            "-y",  # overwrite
+            str(output_wav),
+        ],
+        capture_output=True,
+        text=True
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to convert audio: {result.stderr.strip()}")
 
 
 def download_and_convert_audio(url: str, output_wav: Path) -> None:
@@ -178,6 +213,7 @@ def download_and_convert_audio(url: str, output_wav: Path) -> None:
             [
                 "yt-dlp",
                 "--no-warnings",
+                "--impersonate", "chrome",
                 "-f", "bestaudio",
                 "-o", str(audio_file),
                 url,
@@ -186,7 +222,10 @@ def download_and_convert_audio(url: str, output_wav: Path) -> None:
             text=True
         )
         if result.returncode != 0:
-            raise RuntimeError(f"Failed to download audio: {result.stderr.strip()}")
+            stderr = result.stderr.strip()
+            if "Unsupported URL" in stderr or "Unable to extract" in stderr or "no video" in stderr.lower():
+                raise RuntimeError(f"No video found at URL: {url}")
+            raise RuntimeError(f"Failed to download audio: {stderr}")
         
         # Find the actual downloaded file (yt-dlp may or may not add extension)
         downloaded = None
@@ -289,9 +328,9 @@ def main() -> int:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
         prog="ausum",
-        description="YouTube audio transcription with Parakeet + Claude summarization"
+        description="Transcribe and summarize audio/video files or YouTube videos using Parakeet + Claude"
     )
-    parser.add_argument("url", help="YouTube URL")
+    parser.add_argument("input", help="YouTube URL or path to local audio/video file")
     parser.add_argument(
         "-d", "--outdir",
         help="Output directory (overrides saved preference)"
@@ -309,18 +348,32 @@ def main() -> int:
     else:
         outdir = get_output_directory()
     
-    # Get video title for filenames
-    print("Getting video title...", file=sys.stderr)
-    title = get_video_title(args.url)
+    # Determine if input is URL or local file
+    is_remote = is_url(args.input)
+    
+    # Get title for filenames
+    if is_remote:
+        print("Getting video title...", file=sys.stderr)
+        title = get_video_title(args.input)
+    else:
+        input_path = Path(args.input).expanduser()
+        title = get_file_title(input_path)
     
     txt_path = outdir / f"{title}.txt"
     summary_path = outdir / f"{title}-summary.md"
     
-    # Download and convert audio
-    print("Downloading and converting audio...", file=sys.stderr)
+    # Process audio
     with tempfile.TemporaryDirectory(prefix="ausum_") as tmpdir:
         wav_path = Path(tmpdir) / "audio.wav"
-        download_and_convert_audio(args.url, wav_path)
+        
+        if is_remote:
+            # Download and convert audio from URL
+            print("Downloading and converting audio...", file=sys.stderr)
+            download_and_convert_audio(args.input, wav_path)
+        else:
+            # Convert local file
+            print("Converting audio...", file=sys.stderr)
+            convert_local_file_to_wav(input_path, wav_path)
         
         # Transcribe
         print("Transcribing audio...", file=sys.stderr)
