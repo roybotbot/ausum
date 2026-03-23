@@ -68,42 +68,72 @@ def save_config(config: dict) -> None:
     config_path.write_text(json.dumps(config, indent=2))
 
 
-def get_output_directory() -> Path:
-    """Get output directory, prompting user on first run."""
+def resolve_dirs(config: dict) -> tuple[Path, Path]:
+    """Resolve (summary_dir, transcript_dir) from config.
+
+    If only one dir is configured, both outputs go there.
+    """
+    raw_summary = config.get("summary_dir") or config.get("output_dir")  # migrate old key
+    raw_transcript = config.get("transcript_dir")
+
+    if not raw_summary and not raw_transcript:
+        raise RuntimeError("No output directory configured")
+
+    summary_dir = Path(raw_summary).expanduser() if raw_summary else Path(raw_transcript).expanduser()
+    transcript_dir = Path(raw_transcript).expanduser() if raw_transcript else summary_dir
+
+    return summary_dir, transcript_dir
+
+
+def get_output_dirs() -> tuple[Path, Path]:
+    """Return (summary_dir, transcript_dir), prompting on first run."""
     config = load_config()
-    
-    # If we have a saved directory, use it
-    if "output_dir" in config:
-        return Path(config["output_dir"]).expanduser()
-    
-    # First run - prompt user
+
+    # Migrate old single output_dir key
+    if "output_dir" in config and "summary_dir" not in config:
+        config["summary_dir"] = config.pop("output_dir")
+        save_config(config)
+
+    if "summary_dir" in config or "transcript_dir" in config:
+        summary_dir, transcript_dir = resolve_dirs(config)
+        summary_dir.mkdir(parents=True, exist_ok=True)
+        transcript_dir.mkdir(parents=True, exist_ok=True)
+        return summary_dir, transcript_dir
+
+    # First run — prompt
     default_dir = Path("~/Documents").expanduser()
-    
-    if default_dir.exists():
-        prompt = f"Where should transcripts be saved? (default: {default_dir})\nPress Enter for default, or enter a path: "
-    else:
-        prompt = "Where should transcripts be saved? Enter a directory path: "
-    
-    user_input = input(prompt).strip()
-    
-    if user_input:
-        output_dir = Path(user_input).expanduser()
+    default_hint = f" (default: {default_dir})" if default_dir.exists() else ""
+
+    print("First run setup:", file=sys.stderr)
+
+    raw = input(f"Where should summaries be saved?{default_hint}\nPress Enter for default, or enter a path: ").strip()
+    if raw:
+        summary_dir = Path(raw).expanduser()
     elif default_dir.exists():
-        output_dir = default_dir
+        summary_dir = default_dir
     else:
         print("No default directory available. Please enter a valid path.", file=sys.stderr)
         sys.exit(1)
-    
-    # Create directory if it doesn't exist
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Save to config
-    config["output_dir"] = str(output_dir)
+
+    raw = input("Where should transcripts be saved? (press Enter to use summary directory): ").strip()
+    transcript_dir = Path(raw).expanduser() if raw else summary_dir
+
+    raw = input("Save transcript .txt files? [Y/n]: ").strip().lower()
+    save_transcript = raw != "n"
+
+    summary_dir.mkdir(parents=True, exist_ok=True)
+    transcript_dir.mkdir(parents=True, exist_ok=True)
+
+    config["summary_dir"] = str(summary_dir)
+    config["transcript_dir"] = str(transcript_dir)
+    config["save_transcript"] = save_transcript
     save_config(config)
-    
-    print(f"Saving transcripts to: {output_dir}", file=sys.stderr)
-    
-    return output_dir
+
+    print(f"Summaries → {summary_dir}", file=sys.stderr)
+    print(f"Transcripts → {transcript_dir}", file=sys.stderr)
+    print(f"Save transcripts: {save_transcript}", file=sys.stderr)
+
+    return summary_dir, transcript_dir
 
 
 def check_prerequisites() -> None:
@@ -333,16 +363,20 @@ def main() -> int:
     # Check prerequisites
     check_prerequisites()
     
-    # Setup output directory
+    # Setup output directories
     if args.outdir:
         outdir = Path(args.outdir).expanduser()
         outdir.mkdir(parents=True, exist_ok=True)
+        summary_dir = transcript_dir = outdir
+        save_transcript = True
     else:
-        outdir = get_output_directory()
-    
+        summary_dir, transcript_dir = get_output_dirs()
+        config = load_config()
+        save_transcript = config.get("save_transcript", True)
+
     # Determine if input is URL or local file
     is_remote = is_url(args.input)
-    
+
     # Get title for filenames
     if is_remote:
         print("Getting video title...", file=sys.stderr)
@@ -350,41 +384,40 @@ def main() -> int:
     else:
         input_path = Path(args.input).expanduser()
         title = get_file_title(input_path)
-    
-    txt_path = outdir / f"{title}.txt"
-    summary_path = outdir / f"{title}-summary.md"
-    
+
+    txt_path = transcript_dir / f"{title}.txt"
+    summary_path = summary_dir / f"{title}-summary.md"
+
     # Process audio
     with tempfile.TemporaryDirectory(prefix="ausum_") as tmpdir:
         wav_path = Path(tmpdir) / "audio.wav"
-        
+
         if is_remote:
-            # Download and convert audio from URL
             print("Downloading and converting audio...", file=sys.stderr)
             download_and_convert_audio(args.input, wav_path)
         else:
-            # Convert local file
             print("Converting audio...", file=sys.stderr)
             convert_to_wav(input_path, wav_path)
-        
-        # Transcribe
+
         print("Transcribing audio...", file=sys.stderr)
         transcript = transcribe_audio(wav_path)
-    
-    # Save transcript
-    txt_path.write_text(transcript, encoding="utf-8")
-    print("Transcript saved:", txt_path, file=sys.stderr)
-    
+
+    # Save transcript (optional)
+    if save_transcript:
+        txt_path.write_text(transcript, encoding="utf-8")
+        print("Transcript saved:", txt_path, file=sys.stderr)
+
     # Summarize
     print("Generating summary...", file=sys.stderr)
     summary = summarize_transcript(transcript)
-    
+
     # Save summary
     summary_path.write_text(summary, encoding="utf-8")
     print("Summary saved:", summary_path, file=sys.stderr)
-    
+
     # Print output paths
-    print(str(txt_path))
+    if save_transcript:
+        print(str(txt_path))
     print(str(summary_path))
 
     if args.read:
