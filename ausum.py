@@ -411,6 +411,10 @@ def main() -> int:
     print("Generating summary...", file=sys.stderr)
     summary = summarize_transcript(transcript)
 
+    # Append source footer
+    source = args.input.split("?")[0] if is_remote else args.input
+    summary = f"{summary}\n\n---\nSource: {source}"
+
     # Save summary
     summary_path.write_text(summary, encoding="utf-8")
     print("Summary saved:", summary_path, file=sys.stderr)
