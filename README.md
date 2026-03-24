@@ -86,11 +86,29 @@ Output files:
 ## First Run
 
 On your first run, `ausum` will:
-1. Ask where you'd like to save transcripts (defaults to `~/Documents` if it exists)
-2. Save your preference to `~/.config/ausum/config.json`
-3. Download the Parakeet model (~600MB) from HuggingFace
+1. Ask where summaries should be saved (defaults to `~/Documents` if it exists)
+2. Ask where transcripts should be saved (press Enter to use the same directory as summaries)
+3. Ask whether to save transcript `.txt` files at all
+4. Save preferences to `~/.config/ausum/config.json`
+5. Download the Parakeet model (~600MB) from HuggingFace on first transcription
 
-Subsequent runs use your saved directory preference. You can always override it with `-d`.
+Subsequent runs use your saved preferences. You can always override the output directory for a single run with `-d`.
+
+## Configuration
+
+Preferences are stored in `~/.config/ausum/config.json`. You can edit it directly to change settings without re-running the setup prompt:
+
+```json
+{
+  "summary_dir": "/path/to/summaries",
+  "transcript_dir": "/path/to/transcripts",
+  "save_transcript": true
+}
+```
+
+- **`summary_dir`** — where `.md` summary files are saved
+- **`transcript_dir`** — where `.txt` transcript files are saved (optional; if omitted, uses `summary_dir`)
+- **`save_transcript`** — set to `false` to skip saving the raw transcript
 
 ## Model Storage
 
