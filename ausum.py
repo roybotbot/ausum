@@ -146,8 +146,8 @@ def check_prerequisites() -> None:
     if not shutil.which("ffmpeg"):
         missing.append("ffmpeg (install: brew install ffmpeg)")
     
-    if not shutil.which("claude") and not shutil.which("pi"):
-        missing.append("claude CLI or pi (at least one must be available)")
+    if not shutil.which("pi"):
+        missing.append("pi (https://github.com/mariozechner/pi-coding-agent)")
 
     whisper_cli = os.environ.get("WHISPER_CLI", shutil.which("whisper-cli"))
     if not whisper_cli or not Path(whisper_cli).is_file():
@@ -281,53 +281,44 @@ def transcribe_audio(wav_path: Path) -> str:
 
 
 def summarize_transcript(transcript: str) -> str:
-    """Summarize transcript using Claude, falling back to pi if not logged in."""
+    """Summarize transcript using pi via RPC mode."""
     prompt = f"{SUMMARY_INSTRUCTIONS}\n\nTranscript:\n\n{transcript}"
 
-    # Try claude --print first
-    try:
-        result = subprocess.run(
-            ["claude", "--print"],
-            input=prompt,
-            capture_output=True,
-            text=True
-        )
+    proc = subprocess.Popen(
+        ["pi", "--mode", "rpc", "--no-session", "--no-tools"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True
+    )
 
-        if result.returncode == 0:
-            summary = result.stdout.strip()
-            if summary:
-                return summary
+    proc.stdin.write(json.dumps({"type": "prompt", "message": prompt}) + "\n")
+    proc.stdin.flush()
 
-        combined = (result.stderr + result.stdout)
-        if "Not logged in" not in combined:
-            # Some other error — don't fall back, just raise
-            error = result.stderr.strip() or result.stdout.strip() or f"claude exited with code {result.returncode}"
-            raise RuntimeError(f"Summarization failed: {error}")
+    chunks = []
+    for line in proc.stdout:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
 
-    except FileNotFoundError:
-        pass  # claude not installed, fall through to pi
+        if event.get("type") == "message_update":
+            delta = event.get("assistantMessageEvent", {})
+            if delta.get("type") == "text_delta":
+                chunk = delta.get("delta", "")
+                chunks.append(chunk)
+                print(chunk, end="", flush=True, file=sys.stderr)
 
-    # Fall back to pi -p
-    print("claude not logged in, falling back to pi...", file=sys.stderr)
+        if event.get("type") == "agent_end":
+            break
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".md", prefix="ausum_prompt_", delete=False) as f:
-        f.write(prompt)
-        prompt_file = f.name
+    proc.terminate()
+    proc.wait()
+    print(file=sys.stderr)  # newline after streamed output
 
-    try:
-        result = subprocess.run(
-            ["pi", "--no-tools", "-p", f"@{prompt_file}"],
-            capture_output=True,
-            text=True
-        )
-    finally:
-        Path(prompt_file).unlink(missing_ok=True)
-
-    if result.returncode != 0:
-        error = result.stderr.strip() or result.stdout.strip() or f"pi exited with code {result.returncode}"
-        raise RuntimeError(f"Summarization failed (claude and pi both failed): {error}")
-
-    summary = result.stdout.strip()
+    summary = "".join(chunks).strip()
     if not summary:
         raise RuntimeError("Summarization produced no output")
 
