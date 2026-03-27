@@ -1,6 +1,6 @@
 # ausum - Audio Summarization
 
-Automatically transcribe and summarize any audio or video file using local AI (FluidAudio Parakeet) + Claude. Works with YouTube videos, podcasts, recordings, meetings, lectures - any audio content.
+Automatically transcribe and summarize any audio or video file using whisper.cpp + pi. Works with YouTube videos, podcasts, recordings, meetings, lectures - any audio content.
 
 This is a tool built for macOS.
 
@@ -10,8 +10,8 @@ Reading is faster than watching videos. For certain types of videos I find it fa
 
 ## Features
 
-- **Local speech-to-text** using FluidAudio's Parakeet model (600M parameters, 25 European languages)
-- **Automatic summarization** with Claude (falls back to pi if claude is unavailable or not logged in)
+- **Local speech-to-text** using [whisper.cpp](https://github.com/ggml-org/whisper.cpp) with Metal GPU acceleration
+- **Automatic summarization** via [pi](https://github.com/mariozechner/pi-coding-agent) using RPC mode with live streaming output
 - **Privacy-first** - all transcription runs locally on your Mac
 - **Simple CLI** - one command to get transcript + summary
 
@@ -23,23 +23,25 @@ Install required tools:
 # Package managers (one-time setup)
 brew install yt-dlp ffmpeg
 
-# Claude CLI (recommended)
-# Follow: https://docs.anthropic.com/claude-cli
+# pi (AI coding agent used for summarization)
+# Follow: https://github.com/mariozechner/pi-coding-agent
 
-# OR pi (used as automatic fallback if claude is unavailable or not logged in)
-# Follow: https://github.com/mariozechner/pi
+# whisper.cpp (build from source)
+git clone https://github.com/ggml-org/whisper.cpp.git
+cd whisper.cpp
+cmake -B build -DWHISPER_METAL=ON
+cmake --build build --config Release
 
-# FluidAudio (build from source)
-git clone https://github.com/FluidInference/FluidAudio.git
-cd FluidAudio
-swift build -c release
+# Download a whisper model
+bash models/download-ggml-model.sh large-v3-turbo
 ```
 
-Set environment variable:
+Set environment variables:
 
 ```bash
 # Add to ~/.zshrc or ~/.bashrc
-export FLUIDAUDIO_PATH=~/path/to/FluidAudio
+export WHISPER_CLI=~/path/to/whisper.cpp/build/bin/whisper-cli
+export WHISPER_MODEL=~/path/to/whisper.cpp/models/ggml-large-v3-turbo.bin
 ```
 
 ## Installation
@@ -80,8 +82,8 @@ ausum "https://www.youtube.com/watch?v=VIDEO_ID" --read
 **Supported formats:** Any audio or video format that ffmpeg can read (mp4, mp3, wav, m4a, webm, mkv, avi, flac, ogg, etc.)
 
 Output files:
-- `<video-title>.txt` or `<filename>.txt` - Full transcript
-- `<video-title>-summary.md` or `<filename>-summary.md` - Structured summary
+- `<title>.txt` - Full transcript
+- `<title>-summary.md` - Structured summary
 
 ## First Run
 
@@ -90,7 +92,6 @@ On your first run, `ausum` will:
 2. Ask where transcripts should be saved (press Enter to use the same directory as summaries)
 3. Ask whether to save transcript `.txt` files at all
 4. Save preferences to `~/.config/ausum/config.json`
-5. Download the Parakeet model (~600MB) from HuggingFace on first transcription
 
 Subsequent runs use your saved preferences. You can always override the output directory for a single run with `-d`.
 
@@ -110,24 +111,14 @@ Preferences are stored in `~/.config/ausum/config.json`. You can edit it directl
 - **`transcript_dir`** — where `.txt` transcript files are saved (optional; if omitted, uses `summary_dir`)
 - **`save_transcript`** — set to `false` to skip saving the raw transcript
 
-## Model Storage
-
-The Parakeet model (~460MB) is cached in `~/Library/Application Support/FluidAudio/Models/` and persists across ausum updates. It is NOT deleted when you reinstall ausum with pipx - the cache is managed by FluidAudio, not ausum.
-
-If you need to free up disk space, you can manually delete the cache:
-```bash
-rm -rf ~/Library/Application\ Support/FluidAudio/Models/parakeet*
-```
-
-The model will be re-downloaded on next use.
-
 ## Summary Format
 
-Summaries follow the structure defined in `transcript-summary.md`:
-- Major sections with short headers
-- Concise bullet points of key points
-- Step-by-step instructions (if applicable)
-- Next steps for learning more
+Summaries follow a structured format:
+- **Overview** — bullet list of high-level concepts and key takeaways
+- **Detailed Summary** — major sections with descriptive headers and detailed bullets
+- **Next Steps** — actionable recommendations for learning more
+
+Each summary includes a source link at the bottom.
 
 ## License
 
