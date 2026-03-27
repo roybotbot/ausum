@@ -10,6 +10,11 @@ import sys
 import tempfile
 from pathlib import Path
 
+DEFAULT_MODELS = {
+    "anthropic": "claude-sonnet-4-6",
+    "openai": "gpt-5.4-nano",
+}
+
 
 SUMMARY_INSTRUCTIONS = """Create a comprehensive markdown summary of the following transcript. Output ONLY the markdown summary, no meta-commentary.
 
@@ -121,33 +126,52 @@ def get_output_dirs() -> tuple[Path, Path]:
     raw = input("Save transcript .txt files? [Y/n]: ").strip().lower()
     save_transcript = raw != "n"
 
+    # Provider setup
+    print("\nSummarization provider:", file=sys.stderr)
+    print("  1) Anthropic Claude", file=sys.stderr)
+    print("  2) OpenAI ChatGPT", file=sys.stderr)
+    raw = input("Choose provider [1/2]: ").strip()
+    if raw == "2":
+        provider = "openai"
+    else:
+        provider = "anthropic"
+
+    default_model = DEFAULT_MODELS[provider]
+    if provider == "anthropic":
+        print(f"\nSee models: https://platform.claude.com/docs/en/about-claude/models/overview", file=sys.stderr)
+    else:
+        print(f"\nSee models: https://developers.openai.com/api/docs/models", file=sys.stderr)
+
+    raw = input(f"Model to use (default: {default_model}): ").strip()
+    model = raw if raw else default_model
+
     summary_dir.mkdir(parents=True, exist_ok=True)
     transcript_dir.mkdir(parents=True, exist_ok=True)
 
     config["summary_dir"] = str(summary_dir)
     config["transcript_dir"] = str(transcript_dir)
     config["save_transcript"] = save_transcript
+    config["provider"] = provider
+    config["model"] = model
     save_config(config)
 
-    print(f"Summaries → {summary_dir}", file=sys.stderr)
+    print(f"\nSummaries → {summary_dir}", file=sys.stderr)
     print(f"Transcripts → {transcript_dir}", file=sys.stderr)
     print(f"Save transcripts: {save_transcript}", file=sys.stderr)
+    print(f"Provider: {provider} ({model})", file=sys.stderr)
 
     return summary_dir, transcript_dir
 
 
-def check_prerequisites() -> None:
+def check_prerequisites(provider: str) -> None:
     """Verify all required tools are available."""
     missing = []
-    
+
     if not shutil.which("yt-dlp"):
         missing.append("yt-dlp (install: brew install yt-dlp)")
-    
+
     if not shutil.which("ffmpeg"):
         missing.append("ffmpeg (install: brew install ffmpeg)")
-    
-    if not shutil.which("pi"):
-        missing.append("pi (https://github.com/mariozechner/pi-coding-agent)")
 
     whisper_cli = os.environ.get("WHISPER_CLI", shutil.which("whisper-cli"))
     if not whisper_cli or not Path(whisper_cli).is_file():
@@ -158,7 +182,14 @@ def check_prerequisites() -> None:
         missing.append("WHISPER_MODEL environment variable not set (path to .bin model file)")
     elif not Path(whisper_model).is_file():
         missing.append(f"WHISPER_MODEL points to non-existent file: {whisper_model}")
-    
+
+    if provider == "anthropic" and not os.environ.get("ANTHROPIC_API_KEY"):
+        missing.append("ANTHROPIC_API_KEY environment variable not set")
+    elif provider == "openai" and not os.environ.get("OPENAI_API_KEY"):
+        missing.append("OPENAI_API_KEY environment variable not set")
+    elif provider == "pi" and not shutil.which("pi"):
+        missing.append("pi (https://github.com/mariozechner/pi-coding-agent)")
+
     if missing:
         print("ausum: missing prerequisites:", file=sys.stderr)
         for item in missing:
@@ -280,10 +311,50 @@ def transcribe_audio(wav_path: Path) -> str:
     return transcript
 
 
-def summarize_transcript(transcript: str) -> str:
-    """Summarize transcript using pi via RPC mode."""
-    prompt = f"{SUMMARY_INSTRUCTIONS}\n\nTranscript:\n\n{transcript}"
+def summarize_with_anthropic(prompt: str, model: str) -> str:
+    """Summarize using Anthropic Claude API."""
+    import anthropic
 
+    client = anthropic.Anthropic()
+    chunks = []
+
+    with client.messages.stream(
+        model=model,
+        max_tokens=8192,
+        messages=[{"role": "user", "content": prompt}],
+    ) as stream:
+        for text in stream.text_stream:
+            chunks.append(text)
+            print(text, end="", flush=True, file=sys.stderr)
+
+    print(file=sys.stderr)
+    return "".join(chunks).strip()
+
+
+def summarize_with_openai(prompt: str, model: str) -> str:
+    """Summarize using OpenAI ChatGPT API."""
+    from openai import OpenAI
+
+    client = OpenAI()
+    chunks = []
+
+    stream = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        stream=True,
+    )
+    for chunk in stream:
+        delta = chunk.choices[0].delta.content
+        if delta:
+            chunks.append(delta)
+            print(delta, end="", flush=True, file=sys.stderr)
+
+    print(file=sys.stderr)
+    return "".join(chunks).strip()
+
+
+def summarize_with_pi(prompt: str) -> str:
+    """Summarize using pi via RPC mode."""
     proc = subprocess.Popen(
         ["pi", "--mode", "rpc", "--no-session", "--no-tools"],
         stdin=subprocess.PIPE,
@@ -316,9 +387,23 @@ def summarize_transcript(transcript: str) -> str:
 
     proc.terminate()
     proc.wait()
-    print(file=sys.stderr)  # newline after streamed output
+    print(file=sys.stderr)
+    return "".join(chunks).strip()
 
-    summary = "".join(chunks).strip()
+
+def summarize_transcript(transcript: str, provider: str, model: str) -> str:
+    """Summarize transcript using the configured provider."""
+    prompt = f"{SUMMARY_INSTRUCTIONS}\n\nTranscript:\n\n{transcript}"
+
+    if provider == "anthropic":
+        summary = summarize_with_anthropic(prompt, model)
+    elif provider == "openai":
+        summary = summarize_with_openai(prompt, model)
+    elif provider == "pi":
+        summary = summarize_with_pi(prompt)
+    else:
+        raise RuntimeError(f"Unknown provider: {provider}")
+
     if not summary:
         raise RuntimeError("Summarization produced no output")
 
@@ -329,7 +414,7 @@ def main() -> int:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
         prog="ausum",
-        description="Transcribe and summarize audio/video files or YouTube videos using Parakeet + Claude"
+        description="Transcribe and summarize audio/video files or YouTube videos using whisper.cpp + AI"
     )
     parser.add_argument("input", help="YouTube URL or path to local audio/video file")
     parser.add_argument(
@@ -337,15 +422,55 @@ def main() -> int:
         help="Output directory (overrides saved preference)"
     )
     parser.add_argument(
+        "--provider",
+        choices=["anthropic", "openai"],
+        help="Summarization provider (overrides saved preference)"
+    )
+    parser.add_argument(
+        "--model",
+        help="Model to use for summarization (overrides saved preference)"
+    )
+    parser.add_argument(
         "--read",
         action="store_true",
         help="Open the summary in mdv after it's created"
     )
-    
+
     args = parser.parse_args()
-    
+
+    # Resolve provider and model from args → config → first-run setup
+    config = load_config()
+    provider = args.provider or config.get("provider")
+    model = args.model or config.get("model")
+
+    if not provider:
+        # Provider not configured yet — prompt for it
+        config = load_config()
+        print("\nSummarization provider:", file=sys.stderr)
+        print("  1) Anthropic Claude", file=sys.stderr)
+        print("  2) OpenAI ChatGPT", file=sys.stderr)
+        raw = input("Choose provider [1/2]: ").strip()
+        provider = "openai" if raw == "2" else "anthropic"
+
+        default_model = DEFAULT_MODELS[provider]
+        if provider == "anthropic":
+            print(f"\nSee models: https://platform.claude.com/docs/en/about-claude/models/overview", file=sys.stderr)
+        else:
+            print(f"\nSee models: https://developers.openai.com/api/docs/models", file=sys.stderr)
+
+        raw = input(f"Model to use (default: {default_model}): ").strip()
+        model = raw if raw else default_model
+
+        config["provider"] = provider
+        config["model"] = model
+        save_config(config)
+        print(f"Provider: {provider} ({model})", file=sys.stderr)
+
+    if not model:
+        model = DEFAULT_MODELS.get(provider, "")
+
     # Check prerequisites
-    check_prerequisites()
+    check_prerequisites(provider)
     
     # Setup output directories
     if args.outdir:
@@ -392,8 +517,8 @@ def main() -> int:
         print("Transcript saved:", txt_path, file=sys.stderr)
 
     # Summarize
-    print("Generating summary...", file=sys.stderr)
-    summary = summarize_transcript(transcript)
+    print(f"Generating summary ({provider}/{model})...", file=sys.stderr)
+    summary = summarize_transcript(transcript, provider, model)
 
     # Append source footer
     source = args.input.split("?")[0] if is_remote else args.input

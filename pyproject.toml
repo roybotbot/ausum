@@ -1,12 +1,16 @@
 [project]
 name = "ausum"
-version = "1.2.0"
-description = "YouTube audio transcription with Parakeet + Claude summarization"
+version = "1.3.0"
+description = "Transcribe and summarize audio/video using whisper.cpp + Claude or ChatGPT"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
     {name = "Roy Natian"}
+]
+dependencies = [
+    "anthropic>=0.40.0",
+    "openai>=1.0.0",
 ]
 
 [project.scripts]

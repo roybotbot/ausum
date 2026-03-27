@@ -1,6 +1,6 @@
 # ausum - Audio Summarization
 
-Automatically transcribe and summarize any audio or video file using whisper.cpp + pi. Works with YouTube videos, podcasts, recordings, meetings, lectures - any audio content.
+Automatically transcribe and summarize any audio or video file using local transcription (whisper.cpp) and AI summarization (Anthropic Claude or OpenAI ChatGPT). Works with YouTube videos, podcasts, recordings, meetings, lectures - any audio content.
 
 This is a tool built for macOS.
 
@@ -11,7 +11,7 @@ Reading is faster than watching videos. For certain types of videos I find it fa
 ## Features
 
 - **Local speech-to-text** using [whisper.cpp](https://github.com/ggml-org/whisper.cpp) with Metal GPU acceleration
-- **Automatic summarization** via [pi](https://github.com/mariozechner/pi-coding-agent) using RPC mode with live streaming output
+- **AI summarization** via Anthropic Claude or OpenAI ChatGPT APIs with live streaming output
 - **Privacy-first** - all transcription runs locally on your Mac
 - **Simple CLI** - one command to get transcript + summary
 
@@ -22,9 +22,6 @@ Install required tools:
 ```bash
 # Package managers (one-time setup)
 brew install yt-dlp ffmpeg
-
-# pi (AI coding agent used for summarization)
-# Follow: https://github.com/mariozechner/pi-coding-agent
 
 # whisper.cpp (build from source)
 git clone https://github.com/ggml-org/whisper.cpp.git
@@ -40,8 +37,14 @@ Set environment variables:
 
 ```bash
 # Add to ~/.zshrc or ~/.bashrc
+
+# whisper.cpp
 export WHISPER_CLI=~/path/to/whisper.cpp/build/bin/whisper-cli
 export WHISPER_MODEL=~/path/to/whisper.cpp/models/ggml-large-v3-turbo.bin
+
+# One of these, depending on your chosen provider:
+export ANTHROPIC_API_KEY="your-key"   # https://console.anthropic.com
+export OPENAI_API_KEY="your-key"      # https://platform.openai.com/api-keys
 ```
 
 ## Installation
@@ -51,11 +54,11 @@ export WHISPER_MODEL=~/path/to/whisper.cpp/models/ggml-large-v3-turbo.bin
 git clone https://github.com/roybotbot/ausum.git
 cd ausum
 
-# Install with pip
-pip install .
-
-# Or with pipx (recommended)
+# Install with pipx (recommended)
 pipx install .
+
+# Or with pip
+pip install .
 ```
 
 ## Usage
@@ -71,6 +74,9 @@ ausum "https://www.youtube.com/watch?v=VIDEO_ID&list=PLAYLIST_ID"
 ausum /path/to/video.mp4
 ausum ~/Downloads/podcast.mp3
 ausum ./recording.wav
+
+# Override provider or model for a single run
+ausum --provider openai --model gpt-4o "https://www.youtube.com/watch?v=VIDEO_ID"
 
 # Override saved directory for a single run
 ausum "https://www.youtube.com/watch?v=VIDEO_ID" -d ~/my-transcripts
@@ -89,27 +95,34 @@ Output files:
 
 On your first run, `ausum` will:
 1. Ask where summaries should be saved (defaults to `~/Documents` if it exists)
-2. Ask where transcripts should be saved (press Enter to use the same directory as summaries)
+2. Ask where transcripts should be saved (press Enter to use the same directory)
 3. Ask whether to save transcript `.txt` files at all
-4. Save preferences to `~/.config/ausum/config.json`
+4. Ask which AI provider to use (Anthropic Claude or OpenAI ChatGPT)
+5. Ask which model to use (with links to model docs)
 
-Subsequent runs use your saved preferences. You can always override the output directory for a single run with `-d`.
+Subsequent runs use your saved preferences. You can override provider, model, or output directory per-run with flags.
 
 ## Configuration
 
-Preferences are stored in `~/.config/ausum/config.json`. You can edit it directly to change settings without re-running the setup prompt:
+Preferences are stored in `~/.config/ausum/config.json`. You can edit it directly:
 
 ```json
 {
   "summary_dir": "/path/to/summaries",
   "transcript_dir": "/path/to/transcripts",
-  "save_transcript": true
+  "save_transcript": true,
+  "provider": "anthropic",
+  "model": "claude-sonnet-4-6"
 }
 ```
 
 - **`summary_dir`** — where `.md` summary files are saved
 - **`transcript_dir`** — where `.txt` transcript files are saved (optional; if omitted, uses `summary_dir`)
 - **`save_transcript`** — set to `false` to skip saving the raw transcript
+- **`provider`** — `"anthropic"` or `"openai"`
+- **`model`** — model ID to use for summarization
+  - Anthropic models: https://platform.claude.com/docs/en/about-claude/models/overview
+  - OpenAI models: https://developers.openai.com/api/docs/models
 
 ## Summary Format
 
