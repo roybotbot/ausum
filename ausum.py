@@ -146,19 +146,18 @@ def check_prerequisites() -> None:
     if not shutil.which("ffmpeg"):
         missing.append("ffmpeg (install: brew install ffmpeg)")
     
-    if not shutil.which("swift"):
-        missing.append("swift (comes with Xcode)")
-    
     if not shutil.which("claude") and not shutil.which("pi"):
         missing.append("claude CLI or pi (at least one must be available)")
-    
-    fluidaudio_path = os.environ.get("FLUIDAUDIO_PATH")
-    if not fluidaudio_path:
-        missing.append("FLUIDAUDIO_PATH environment variable not set")
-    elif not Path(fluidaudio_path).is_dir():
-        missing.append(f"FLUIDAUDIO_PATH points to non-existent directory: {fluidaudio_path}")
-    elif not (Path(fluidaudio_path) / "Package.swift").exists():
-        missing.append(f"No Package.swift found in FLUIDAUDIO_PATH: {fluidaudio_path}")
+
+    whisper_cli = os.environ.get("WHISPER_CLI", shutil.which("whisper-cli"))
+    if not whisper_cli or not Path(whisper_cli).is_file():
+        missing.append("whisper-cli binary not found (set WHISPER_CLI env var or add to PATH)")
+
+    whisper_model = os.environ.get("WHISPER_MODEL")
+    if not whisper_model:
+        missing.append("WHISPER_MODEL environment variable not set (path to .bin model file)")
+    elif not Path(whisper_model).is_file():
+        missing.append(f"WHISPER_MODEL points to non-existent file: {whisper_model}")
     
     if missing:
         print("ausum: missing prerequisites:", file=sys.stderr)
@@ -253,37 +252,31 @@ def download_and_convert_audio(url: str, output_wav: Path) -> None:
         convert_to_wav(matches[0], output_wav)
 
 
-def check_parakeet_model_cache() -> bool:
-    """Check if Parakeet model is already cached."""
-    cache_dir = Path.home() / "Library" / "Application Support" / "FluidAudio" / "Models"
-    if not cache_dir.exists():
-        return False
-    return any(d.is_dir() and "parakeet-tdt" in d.name.lower() for d in cache_dir.iterdir())
-
-
 def transcribe_audio(wav_path: Path) -> str:
-    """Transcribe audio using FluidAudio Parakeet."""
-    fluidaudio_path = Path(os.environ["FLUIDAUDIO_PATH"])
-    
-    # Check if model needs downloading
-    if not check_parakeet_model_cache():
-        print("Downloading Parakeet model (~600MB), this only happens once...", file=sys.stderr)
-    
-    # Run transcription
+    """Transcribe audio using whisper.cpp."""
+    whisper_cli = os.environ.get("WHISPER_CLI") or shutil.which("whisper-cli")
+    whisper_model = os.environ["WHISPER_MODEL"]
+
     result = subprocess.run(
-        ["swift", "run", "-c", "release", "fluidaudiocli", "transcribe", str(wav_path)],
-        cwd=str(fluidaudio_path),
+        [whisper_cli, "-m", whisper_model, "-f", str(wav_path), "--output-txt", "--no-prints", "-of", str(wav_path)],
         capture_output=True,
         text=True
     )
-    
+
     if result.returncode != 0:
         raise RuntimeError(f"Transcription failed: {result.stderr.strip()}")
-    
-    transcript = result.stdout.strip()
+
+    # whisper-cli writes <file>.txt alongside the input file
+    txt_output = Path(str(wav_path) + ".txt")
+    if not txt_output.exists():
+        raise RuntimeError("Transcription produced no output file")
+
+    transcript = txt_output.read_text(encoding="utf-8").strip()
+    txt_output.unlink()
+
     if not transcript:
         raise RuntimeError("Transcription produced no output")
-    
+
     return transcript
 
 
