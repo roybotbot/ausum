@@ -262,7 +262,7 @@ def download_and_convert_audio(url: str, output_wav: Path) -> None:
                 "--no-warnings",
                 "--impersonate", "chrome-131",
                 "--no-playlist",
-                "-f", "bestaudio",
+                "-f", "bestaudio/best",
                 "-o", str(audio_file) + ".%(ext)s",
                 url,
             ],
