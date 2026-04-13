@@ -11,6 +11,11 @@ import tempfile
 from pathlib import Path
 
 
+def format_clickable_path(path: Path) -> str:
+    """Return a shell-escaped path that terminals can usually click as one token."""
+    return re.sub(r'([\s\\"\'\(\)\[\]\{\}&;])', r'\\\1', str(path))
+
+
 SUMMARY_INSTRUCTIONS = """Create a comprehensive markdown summary of the following transcript. Output ONLY the markdown summary, no meta-commentary.
 
 Structure:
@@ -389,7 +394,7 @@ def main() -> int:
     # Save transcript (optional)
     if save_transcript:
         txt_path.write_text(transcript, encoding="utf-8")
-        print("Transcript saved:", txt_path, file=sys.stderr)
+        print("Transcript saved:", format_clickable_path(txt_path), file=sys.stderr)
 
     # Summarize
     print("Generating summary...", file=sys.stderr)
@@ -401,12 +406,12 @@ def main() -> int:
 
     # Save summary
     summary_path.write_text(summary, encoding="utf-8")
-    print("Summary saved:", summary_path, file=sys.stderr)
+    print("Summary saved:", format_clickable_path(summary_path), file=sys.stderr)
 
     # Print output paths
     if save_transcript:
-        print(str(txt_path))
-    print(str(summary_path))
+        print(format_clickable_path(txt_path))
+    print(format_clickable_path(summary_path))
 
     if args.read:
         subprocess.run(["mdv", str(summary_path)])
