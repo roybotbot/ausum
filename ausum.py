@@ -592,12 +592,34 @@ def build_legacy_parser() -> argparse.ArgumentParser:
 
 
 
+def print_main_help() -> None:
+    """Print direct CLI help plus discoverable management subcommands."""
+    build_legacy_parser().print_help()
+    print("\nCommands:")
+    print("  poll               Process URLs queued from your phone")
+    print("  install-service    Install launchd plist for auto-polling")
+    print("  uninstall-service  Remove launchd plist")
+
+
+
+def should_run_subcommand(first_arg: str, command_names: set[str]) -> bool:
+    """Return True only when the arg is a command name and not an existing local path."""
+    if first_arg not in command_names:
+        return False
+    return not Path(first_arg).expanduser().exists()
+
+
+
 def main() -> int:
     """Main CLI entry point."""
     argv = sys.argv[1:]
     command_names = {"poll", "install-service", "uninstall-service"}
 
-    if argv and argv[0] in command_names:
+    if argv and argv[0] in {"-h", "--help"}:
+        print_main_help()
+        return 0
+
+    if argv and should_run_subcommand(argv[0], command_names):
         args = build_command_parser().parse_args(argv)
 
         if args.command == "poll":
@@ -606,10 +628,6 @@ def main() -> int:
             return cmd_install_service()
         if args.command == "uninstall-service":
             return cmd_uninstall_service()
-
-    if argv and argv[0] in {"-h", "--help"}:
-        build_legacy_parser().print_help()
-        return 0
 
     args = build_legacy_parser().parse_args(argv)
     return process_input(args.input, outdir=args.outdir, read_summary=args.read)
