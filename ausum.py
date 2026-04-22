@@ -8,7 +8,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.request
 from pathlib import Path
+
+
+POLL_LABEL = "com.ausum.poll"
+POLL_INTERVAL_SECONDS = 1800
+POLL_LOG_PATH = Path.home() / ".config" / "ausum" / "poll.log"
 
 
 def format_clickable_path(path: Path) -> str:
@@ -49,11 +55,35 @@ Requirements:
 - Then begin first section with "## Overview" """
 
 
+def queue_fetch(queue_url: str, queue_token: str) -> list[dict]:
+    """Fetch pending items from the remote queue."""
+    req = urllib.request.Request(
+        f"{queue_url.rstrip('/')}/queue",
+        headers={"X-Token": queue_token, "User-Agent": "ausum/1.0"},
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    return data.get("items", [])
+
+
+def queue_delete(queue_url: str, queue_token: str, item_id: str) -> None:
+    """Delete a processed item from the remote queue."""
+    req = urllib.request.Request(
+        f"{queue_url.rstrip('/')}/queue/{item_id}",
+        method="DELETE",
+        headers={"X-Token": queue_token, "User-Agent": "ausum/1.0"},
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        resp.read()
+
+
+
 def get_config_path() -> Path:
     """Get path to config file."""
     config_dir = Path.home() / ".config" / "ausum"
     config_dir.mkdir(parents=True, exist_ok=True)
     return config_dir / "config.json"
+
 
 
 def load_config() -> dict:
@@ -67,10 +97,12 @@ def load_config() -> dict:
     return {}
 
 
+
 def save_config(config: dict) -> None:
     """Save config to file."""
     config_path = get_config_path()
     config_path.write_text(json.dumps(config, indent=2))
+
 
 
 def resolve_dirs(config: dict) -> tuple[Path, Path]:
@@ -88,6 +120,7 @@ def resolve_dirs(config: dict) -> tuple[Path, Path]:
     transcript_dir = Path(raw_transcript).expanduser() if raw_transcript else summary_dir
 
     return summary_dir, transcript_dir
+
 
 
 def get_output_dirs() -> tuple[Path, Path]:
@@ -141,6 +174,7 @@ def get_output_dirs() -> tuple[Path, Path]:
     return summary_dir, transcript_dir
 
 
+
 def check_prerequisites() -> None:
     """Verify all required tools are available."""
     missing = []
@@ -171,6 +205,7 @@ def check_prerequisites() -> None:
         sys.exit(1)
 
 
+
 def sanitize_filename(name: str, max_len: int = 180) -> str:
     """Sanitize a string for use as a filename."""
     name = name.strip()
@@ -184,9 +219,11 @@ def sanitize_filename(name: str, max_len: int = 180) -> str:
     return name
 
 
+
 def is_url(input_str: str) -> bool:
     """Check if input is a URL."""
     return input_str.startswith(("http://", "https://", "www."))
+
 
 
 def get_video_title(url: str) -> str:
@@ -206,9 +243,11 @@ def get_video_title(url: str) -> str:
     return sanitize_filename(title) if title else "untitled"
 
 
+
 def get_file_title(file_path: Path) -> str:
     """Get title from local file path (filename without extension)."""
     return sanitize_filename(file_path.stem)
+
 
 
 def convert_to_wav(input_file: Path, output_wav: Path) -> None:
@@ -223,6 +262,7 @@ def convert_to_wav(input_file: Path, output_wav: Path) -> None:
     )
     if result.returncode != 0:
         raise RuntimeError(f"Failed to convert audio: {result.stderr.strip()}")
+
 
 
 def download_and_convert_audio(url: str, output_wav: Path) -> None:
@@ -257,6 +297,7 @@ def download_and_convert_audio(url: str, output_wav: Path) -> None:
         convert_to_wav(matches[0], output_wav)
 
 
+
 def transcribe_audio(wav_path: Path) -> str:
     """Transcribe audio using whisper.cpp."""
     whisper_cli = os.environ.get("WHISPER_CLI") or shutil.which("whisper-cli")
@@ -283,6 +324,7 @@ def transcribe_audio(wav_path: Path) -> str:
         raise RuntimeError("Transcription produced no output")
 
     return transcript
+
 
 
 def summarize_transcript(transcript: str) -> str:
@@ -330,8 +372,222 @@ def summarize_transcript(transcript: str) -> str:
     return summary
 
 
-def main() -> int:
-    """Main CLI entry point."""
+
+def process_input(input_arg: str, outdir: str | None = None, read_summary: bool = False) -> int:
+    """Process a URL or local file using the existing direct CLI behavior."""
+    check_prerequisites()
+
+    if outdir:
+        output_dir = Path(outdir).expanduser()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        summary_dir = transcript_dir = output_dir
+        save_transcript = True
+    else:
+        summary_dir, transcript_dir = get_output_dirs()
+        config = load_config()
+        save_transcript = config.get("save_transcript", True)
+
+    is_remote = is_url(input_arg)
+
+    if is_remote:
+        print("Getting video title...", file=sys.stderr)
+        title = get_video_title(input_arg)
+    else:
+        input_path = Path(input_arg).expanduser()
+        title = get_file_title(input_path)
+
+    txt_path = transcript_dir / f"{title}.txt"
+    summary_path = summary_dir / f"{title}-summary.md"
+
+    with tempfile.TemporaryDirectory(prefix="ausum_") as tmpdir:
+        wav_path = Path(tmpdir) / "audio.wav"
+
+        if is_remote:
+            print("Downloading and converting audio...", file=sys.stderr)
+            download_and_convert_audio(input_arg, wav_path)
+        else:
+            print("Converting audio...", file=sys.stderr)
+            convert_to_wav(input_path, wav_path)
+
+        print("Transcribing audio...", file=sys.stderr)
+        transcript = transcribe_audio(wav_path)
+
+    if save_transcript:
+        txt_path.write_text(transcript, encoding="utf-8")
+        print("Transcript saved:", format_clickable_path(txt_path), file=sys.stderr)
+
+    print("Generating summary...", file=sys.stderr)
+    summary = summarize_transcript(transcript)
+
+    source = input_arg.split("?")[0] if is_remote else input_arg
+    summary = f"{summary}\n\n---\nSource: {source}"
+
+    summary_path.write_text(summary, encoding="utf-8")
+    print("Summary saved:", format_clickable_path(summary_path), file=sys.stderr)
+
+    if save_transcript:
+        print(format_clickable_path(txt_path))
+    print(format_clickable_path(summary_path))
+
+    if read_summary:
+        subprocess.run(["mdv", str(summary_path)])
+
+    return 0
+
+
+
+def cmd_poll() -> int:
+    """Process queued URLs using the standard ausum flow."""
+    config = load_config()
+    queue_url = str(config.get("queue_url", "")).strip()
+    queue_token = str(config.get("queue_token", "")).strip()
+
+    if not queue_url or not queue_token:
+        print(
+            "Error: queue_url and queue_token not configured.\n"
+            f"Add them to {get_config_path()}",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        items = queue_fetch(queue_url, queue_token)
+    except Exception as exc:
+        print(f"Error fetching queue: {exc}", file=sys.stderr)
+        return 1
+
+    if not items:
+        print("No pending URLs.")
+        return 0
+
+    processed = 0
+    errors = 0
+    interrupted = False
+
+    for item in items:
+        item_id = item.get("id")
+        url = item.get("url")
+
+        if not item_id or not url:
+            print(f"Skipping malformed queue item: {item}", file=sys.stderr)
+            errors += 1
+            continue
+
+        print(f"\n→ {url}", file=sys.stderr)
+
+        try:
+            result = process_input(url)
+            if result == 0:
+                queue_delete(queue_url, queue_token, str(item_id))
+                processed += 1
+            else:
+                print(f"  Failed with exit code {result}, keeping item in queue", file=sys.stderr)
+                errors += 1
+        except KeyboardInterrupt:
+            print("\nInterrupted, leaving remaining items in queue.", file=sys.stderr)
+            interrupted = True
+            break
+        except Exception as exc:
+            print(f"  Error: {exc} — will retry next poll", file=sys.stderr)
+            errors += 1
+
+    print(f"\nDone: {processed} processed, {errors} errors.", file=sys.stderr)
+    return 130 if interrupted else 0
+
+
+
+def _ausum_plist_path() -> Path:
+    return Path.home() / "Library" / "LaunchAgents" / f"{POLL_LABEL}.plist"
+
+
+
+def cmd_install_service() -> int:
+    """Install a launchd agent that runs ausum poll every 30 minutes."""
+    plist_path = _ausum_plist_path()
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
+
+    POLL_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    python_bin = Path(sys.executable).resolve()
+    script_path = Path(__file__).resolve()
+
+    plist = f"""<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\"
+  \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
+<plist version=\"1.0\">
+<dict>
+    <key>Label</key>
+    <string>{POLL_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{python_bin}</string>
+        <string>{script_path}</string>
+        <string>poll</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>{POLL_INTERVAL_SECONDS}</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>{POLL_LOG_PATH}</string>
+    <key>StandardErrorPath</key>
+    <string>{POLL_LOG_PATH}</string>
+</dict>
+</plist>
+"""
+
+    plist_path.write_text(plist, encoding="utf-8")
+    subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
+    subprocess.run(["launchctl", "load", str(plist_path)], capture_output=True)
+    print(f"Installed: {plist_path}")
+    print(f"ausum poll will run every 30 minutes. Logs at {POLL_LOG_PATH}")
+    return 0
+
+
+
+def cmd_uninstall_service() -> int:
+    """Unload and remove the launchd plist."""
+    plist_path = _ausum_plist_path()
+    if not plist_path.exists():
+        print("Not installed — nothing to remove.")
+        return 0
+
+    subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
+    plist_path.unlink()
+    print(f"Unloaded and removed {plist_path}")
+    return 0
+
+
+
+def build_command_parser() -> argparse.ArgumentParser:
+    """Build parser for subcommand-driven CLI."""
+    parser = argparse.ArgumentParser(
+        prog="ausum",
+        description="Transcribe and summarize audio/video files or YouTube videos using whisper.cpp + pi"
+    )
+    subparsers = parser.add_subparsers(dest="command", help="Command to run")
+
+    dl_parser = subparsers.add_parser("dl", help="Process a URL or file directly")
+    dl_parser.add_argument("input", help="YouTube URL or path to local audio/video file")
+    dl_parser.add_argument(
+        "-d", "--outdir",
+        help="Output directory (overrides saved preference)"
+    )
+    dl_parser.add_argument(
+        "--read",
+        action="store_true",
+        help="Open the summary in mdv after it's created"
+    )
+
+    subparsers.add_parser("poll", help="Process URLs queued from your phone")
+    subparsers.add_parser("install-service", help="Install launchd plist for auto-polling")
+    subparsers.add_parser("uninstall-service", help="Remove launchd plist")
+    return parser
+
+
+
+def build_legacy_parser() -> argparse.ArgumentParser:
+    """Build parser for the original direct CLI form."""
     parser = argparse.ArgumentParser(
         prog="ausum",
         description="Transcribe and summarize audio/video files or YouTube videos using whisper.cpp + pi"
@@ -346,77 +602,32 @@ def main() -> int:
         action="store_true",
         help="Open the summary in mdv after it's created"
     )
+    return parser
 
-    args = parser.parse_args()
 
-    # Check prerequisites
-    check_prerequisites()
 
-    # Setup output directories
-    if args.outdir:
-        outdir = Path(args.outdir).expanduser()
-        outdir.mkdir(parents=True, exist_ok=True)
-        summary_dir = transcript_dir = outdir
-        save_transcript = True
-    else:
-        summary_dir, transcript_dir = get_output_dirs()
-        config = load_config()
-        save_transcript = config.get("save_transcript", True)
+def main() -> int:
+    """Main CLI entry point."""
+    argv = sys.argv[1:]
+    command_names = {"dl", "poll", "install-service", "uninstall-service"}
 
-    # Determine if input is URL or local file
-    is_remote = is_url(args.input)
+    if argv and argv[0] in command_names:
+        args = build_command_parser().parse_args(argv)
 
-    # Get title for filenames
-    if is_remote:
-        print("Getting video title...", file=sys.stderr)
-        title = get_video_title(args.input)
-    else:
-        input_path = Path(args.input).expanduser()
-        title = get_file_title(input_path)
+        if args.command == "poll":
+            return cmd_poll()
+        if args.command == "install-service":
+            return cmd_install_service()
+        if args.command == "uninstall-service":
+            return cmd_uninstall_service()
+        return process_input(args.input, outdir=args.outdir, read_summary=args.read)
 
-    txt_path = transcript_dir / f"{title}.txt"
-    summary_path = summary_dir / f"{title}-summary.md"
+    if argv and argv[0] in {"-h", "--help"}:
+        build_command_parser().print_help()
+        return 0
 
-    # Process audio
-    with tempfile.TemporaryDirectory(prefix="ausum_") as tmpdir:
-        wav_path = Path(tmpdir) / "audio.wav"
-
-        if is_remote:
-            print("Downloading and converting audio...", file=sys.stderr)
-            download_and_convert_audio(args.input, wav_path)
-        else:
-            print("Converting audio...", file=sys.stderr)
-            convert_to_wav(input_path, wav_path)
-
-        print("Transcribing audio...", file=sys.stderr)
-        transcript = transcribe_audio(wav_path)
-
-    # Save transcript (optional)
-    if save_transcript:
-        txt_path.write_text(transcript, encoding="utf-8")
-        print("Transcript saved:", format_clickable_path(txt_path), file=sys.stderr)
-
-    # Summarize
-    print("Generating summary...", file=sys.stderr)
-    summary = summarize_transcript(transcript)
-
-    # Append source footer
-    source = args.input.split("?")[0] if is_remote else args.input
-    summary = f"{summary}\n\n---\nSource: {source}"
-
-    # Save summary
-    summary_path.write_text(summary, encoding="utf-8")
-    print("Summary saved:", format_clickable_path(summary_path), file=sys.stderr)
-
-    # Print output paths
-    if save_transcript:
-        print(format_clickable_path(txt_path))
-    print(format_clickable_path(summary_path))
-
-    if args.read:
-        subprocess.run(["mdv", str(summary_path)])
-
-    return 0
+    args = build_legacy_parser().parse_args(argv)
+    return process_input(args.input, outdir=args.outdir, read_summary=args.read)
 
 
 if __name__ == "__main__":
