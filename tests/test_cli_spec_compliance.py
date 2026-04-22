@@ -1,3 +1,4 @@
+import plistlib
 import sys
 from pathlib import Path
 
@@ -111,11 +112,94 @@ def test_install_service_only_writes_plist(monkeypatch, tmp_path, capsys):
     assert ausum.cmd_install_service() == 0
 
     assert plist_path.exists()
-    plist = plist_path.read_text(encoding="utf-8")
-    assert "<string>poll</string>" in plist
-    assert str(log_path) in plist
+    plist = plistlib.loads(plist_path.read_bytes())
+    assert plist["ProgramArguments"][-1] == "poll"
+    assert plist["StandardOutPath"] == str(log_path)
+    assert plist["StandardErrorPath"] == str(log_path)
     assert subprocess_calls == []
 
     captured = capsys.readouterr()
     assert f"Installed: {plist_path}" in captured.out
     assert f"Logs at {log_path}" in captured.out
+
+
+
+def test_cmd_poll_returns_nonzero_when_queue_delete_fails_after_processing(monkeypatch, capsys):
+    monkeypatch.setattr(
+        ausum,
+        "load_config",
+        lambda: {"queue_url": "https://queue.example", "queue_token": "secret"},
+    )
+    monkeypatch.setattr(ausum, "queue_fetch", lambda *_: [{"id": "123", "url": "https://example.com/video"}])
+    monkeypatch.setattr(ausum, "process_input", lambda *_args, **_kwargs: 0)
+
+    def fail_delete(*_args, **_kwargs):
+        raise RuntimeError("delete failed")
+
+    monkeypatch.setattr(ausum, "queue_delete", fail_delete)
+
+    assert ausum.cmd_poll() == 1
+
+    captured = capsys.readouterr()
+    assert "Processed successfully but failed to acknowledge queue item 123" in captured.err
+    assert "Done: 0 processed, 1 errors." in captured.err
+
+
+
+def test_cmd_poll_skips_malformed_queue_items_and_payload(monkeypatch, capsys):
+    monkeypatch.setattr(
+        ausum,
+        "load_config",
+        lambda: {"queue_url": "https://queue.example", "queue_token": "secret"},
+    )
+
+    fetches = iter([
+        "not-a-list",
+        [None, {"id": "missing-url"}, {"url": "missing-id"}, {"id": "ok", "url": "https://example.com/video"}],
+    ])
+
+    monkeypatch.setattr(ausum, "queue_fetch", lambda *_: next(fetches))
+    monkeypatch.setattr(ausum, "process_input", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(ausum, "queue_delete", lambda *_args, **_kwargs: None)
+
+    assert ausum.cmd_poll() == 1
+    first = capsys.readouterr()
+    assert "Malformed queue payload: items must be a list" in first.err
+
+    assert ausum.cmd_poll() == 1
+    second = capsys.readouterr()
+    assert "Skipping malformed queue item: None" in second.err
+    assert "Skipping malformed queue item: {'id': 'missing-url'}" in second.err
+    assert "Skipping malformed queue item: {'url': 'missing-id'}" in second.err
+    assert "Done: 1 processed, 3 errors." in second.err
+
+
+
+def test_cmd_poll_returns_nonzero_on_partial_processing_failure(monkeypatch, capsys):
+    monkeypatch.setattr(
+        ausum,
+        "load_config",
+        lambda: {"queue_url": "https://queue.example", "queue_token": "secret"},
+    )
+    monkeypatch.setattr(
+        ausum,
+        "queue_fetch",
+        lambda *_: [
+            {"id": "ok", "url": "https://example.com/ok"},
+            {"id": "bad", "url": "https://example.com/bad"},
+        ],
+    )
+
+    def fake_process_input(url, *_args, **_kwargs):
+        return 2 if url.endswith("/bad") else 0
+
+    deleted = []
+    monkeypatch.setattr(ausum, "process_input", fake_process_input)
+    monkeypatch.setattr(ausum, "queue_delete", lambda *_args: deleted.append(_args[-1]))
+
+    assert ausum.cmd_poll() == 1
+    assert deleted == ["ok"]
+
+    captured = capsys.readouterr()
+    assert "Failed with exit code 2, keeping item in queue" in captured.err
+    assert "Done: 1 processed, 1 errors." in captured.err

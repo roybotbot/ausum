@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import plistlib
 import re
 import shutil
 import subprocess
@@ -63,7 +64,15 @@ def queue_fetch(queue_url: str, queue_token: str) -> list[dict]:
     )
     with urllib.request.urlopen(req, timeout=15) as resp:
         data = json.loads(resp.read().decode("utf-8"))
-    return data.get("items", [])
+
+    if not isinstance(data, dict):
+        raise ValueError("Malformed queue payload: expected JSON object")
+
+    items = data.get("items", [])
+    if not isinstance(items, list):
+        raise ValueError("Malformed queue payload: items must be a list")
+
+    return items
 
 
 def queue_delete(queue_url: str, queue_token: str, item_id: str) -> None:
@@ -456,6 +465,10 @@ def cmd_poll() -> int:
         print(f"Error fetching queue: {exc}", file=sys.stderr)
         return 1
 
+    if not isinstance(items, list):
+        print("Error fetching queue: Malformed queue payload: items must be a list", file=sys.stderr)
+        return 1
+
     if not items:
         print("No pending URLs.")
         return 0
@@ -465,6 +478,11 @@ def cmd_poll() -> int:
     interrupted = False
 
     for item in items:
+        if not isinstance(item, dict):
+            print(f"Skipping malformed queue item: {item}", file=sys.stderr)
+            errors += 1
+            continue
+
         item_id = item.get("id")
         url = item.get("url")
 
@@ -477,12 +495,6 @@ def cmd_poll() -> int:
 
         try:
             result = process_input(url)
-            if result == 0:
-                queue_delete(queue_url, queue_token, str(item_id))
-                processed += 1
-            else:
-                print(f"  Failed with exit code {result}, keeping item in queue", file=sys.stderr)
-                errors += 1
         except KeyboardInterrupt:
             print("\nInterrupted, leaving remaining items in queue.", file=sys.stderr)
             interrupted = True
@@ -490,9 +502,33 @@ def cmd_poll() -> int:
         except Exception as exc:
             print(f"  Error: {exc} — will retry next poll", file=sys.stderr)
             errors += 1
+            continue
+
+        if result != 0:
+            print(f"  Failed with exit code {result}, keeping item in queue", file=sys.stderr)
+            errors += 1
+            continue
+
+        try:
+            queue_delete(queue_url, queue_token, str(item_id))
+        except KeyboardInterrupt:
+            print("\nInterrupted, leaving remaining items in queue.", file=sys.stderr)
+            interrupted = True
+            break
+        except Exception as exc:
+            print(
+                f"  Processed successfully but failed to acknowledge queue item {item_id}: {exc}",
+                file=sys.stderr,
+            )
+            errors += 1
+            continue
+
+        processed += 1
 
     print(f"\nDone: {processed} processed, {errors} errors.", file=sys.stderr)
-    return 130 if interrupted else 0
+    if interrupted:
+        return 130
+    return 1 if errors else 0
 
 
 
@@ -511,32 +547,16 @@ def cmd_install_service() -> int:
     python_bin = Path(sys.executable).resolve()
     script_path = Path(__file__).resolve()
 
-    plist = f"""<?xml version=\"1.0\" encoding=\"UTF-8\"?>
-<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\"
-  \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
-<plist version=\"1.0\">
-<dict>
-    <key>Label</key>
-    <string>{POLL_LABEL}</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>{python_bin}</string>
-        <string>{script_path}</string>
-        <string>poll</string>
-    </array>
-    <key>StartInterval</key>
-    <integer>{POLL_INTERVAL_SECONDS}</integer>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>{POLL_LOG_PATH}</string>
-    <key>StandardErrorPath</key>
-    <string>{POLL_LOG_PATH}</string>
-</dict>
-</plist>
-"""
+    plist = {
+        "Label": POLL_LABEL,
+        "ProgramArguments": [str(python_bin), str(script_path), "poll"],
+        "StartInterval": POLL_INTERVAL_SECONDS,
+        "RunAtLoad": True,
+        "StandardOutPath": str(POLL_LOG_PATH),
+        "StandardErrorPath": str(POLL_LOG_PATH),
+    }
 
-    plist_path.write_text(plist, encoding="utf-8")
+    plist_path.write_bytes(plistlib.dumps(plist))
     print(f"Installed: {plist_path}")
     print(f"ausum poll will run every 30 minutes. Logs at {POLL_LOG_PATH}")
     return 0
