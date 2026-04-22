@@ -11,6 +11,7 @@ import sys
 import tempfile
 import urllib.request
 from pathlib import Path
+from urllib.parse import quote
 
 
 POLL_LABEL = "com.ausum.poll"
@@ -77,8 +78,9 @@ def queue_fetch(queue_url: str, queue_token: str) -> list[dict]:
 
 def queue_delete(queue_url: str, queue_token: str, item_id: str) -> None:
     """Delete a processed item from the remote queue."""
+    encoded_item_id = quote(str(item_id), safe="")
     req = urllib.request.Request(
-        f"{queue_url.rstrip('/')}/queue/{item_id}",
+        f"{queue_url.rstrip('/')}/queue/{encoded_item_id}",
         method="DELETE",
         headers={"X-Token": queue_token, "User-Agent": "ausum/1.0"},
     )
@@ -498,15 +500,17 @@ def cmd_poll() -> int:
         item_id = item.get("id")
         url = item.get("url")
 
-        if (
-            not item_id
-            or not isinstance(url, str)
-            or not url.strip()
-        ):
+        if item_id is None or not isinstance(url, str) or not url.strip():
             print(f"Skipping malformed queue item: {item}", file=sys.stderr)
             errors += 1
             continue
 
+        if isinstance(item_id, str) and not item_id.strip():
+            print(f"Skipping malformed queue item: {item}", file=sys.stderr)
+            errors += 1
+            continue
+
+        normalized_item_id = str(item_id)
         url = url.strip()
 
         print(f"\n→ {url}", file=sys.stderr)
@@ -528,7 +532,7 @@ def cmd_poll() -> int:
             continue
 
         try:
-            queue_delete(queue_url, queue_token, str(item_id))
+            queue_delete(queue_url, queue_token, normalized_item_id)
         except KeyboardInterrupt:
             print("\nInterrupted, leaving remaining items in queue.", file=sys.stderr)
             interrupted = True

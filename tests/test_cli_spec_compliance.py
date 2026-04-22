@@ -288,3 +288,67 @@ def test_cmd_poll_is_noninteractive_when_output_dirs_unconfigured(monkeypatch, c
     captured = capsys.readouterr()
     assert "summary_dir/transcript_dir" in captured.err
     assert "poll/install-service" in captured.err
+
+
+def test_queue_delete_url_encodes_reserved_item_id(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return b""
+
+    def fake_urlopen(req, timeout=15):
+        captured["url"] = req.full_url
+        captured["method"] = req.get_method()
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(ausum.urllib.request, "urlopen", fake_urlopen)
+
+    ausum.queue_delete("https://queue.example", "secret", "a/b?c#d")
+
+    assert captured == {
+        "url": "https://queue.example/queue/a%2Fb%3Fc%23d",
+        "method": "DELETE",
+        "timeout": 15,
+    }
+
+
+def test_cmd_poll_accepts_zero_id_with_valid_url(monkeypatch, capsys):
+    monkeypatch.setattr(
+        ausum,
+        "load_config",
+        lambda: {
+            "queue_url": "https://queue.example",
+            "queue_token": "secret",
+            "summary_dir": "/tmp/summaries",
+            "transcript_dir": "/tmp/transcripts",
+        },
+    )
+    monkeypatch.setattr(ausum, "queue_fetch", lambda *_: [{"id": 0, "url": "https://example.com/video"}])
+
+    calls = {"processed": [], "deleted": []}
+    monkeypatch.setattr(
+        ausum,
+        "process_input",
+        lambda url, *_args, **_kwargs: calls["processed"].append(url) or 0,
+    )
+    monkeypatch.setattr(
+        ausum,
+        "queue_delete",
+        lambda *_args: calls["deleted"].append(_args[-1]),
+    )
+
+    assert ausum.cmd_poll() == 0
+    assert calls["processed"] == ["https://example.com/video"]
+    assert calls["deleted"] == ["0"]
+
+    captured = capsys.readouterr()
+    assert "Skipping malformed queue item" not in captured.err
+    assert "Done: 1 processed, 0 errors." in captured.err
