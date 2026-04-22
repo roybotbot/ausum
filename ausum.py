@@ -502,7 +502,7 @@ def _ausum_plist_path() -> Path:
 
 
 def cmd_install_service() -> int:
-    """Install a launchd agent that runs ausum poll every 30 minutes."""
+    """Create a launchd plist that runs ausum poll every 30 minutes."""
     plist_path = _ausum_plist_path()
     plist_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -537,8 +537,6 @@ def cmd_install_service() -> int:
 """
 
     plist_path.write_text(plist, encoding="utf-8")
-    subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
-    subprocess.run(["launchctl", "load", str(plist_path)], capture_output=True)
     print(f"Installed: {plist_path}")
     print(f"ausum poll will run every 30 minutes. Logs at {POLL_LOG_PATH}")
     return 0
@@ -560,24 +558,12 @@ def cmd_uninstall_service() -> int:
 
 
 def build_command_parser() -> argparse.ArgumentParser:
-    """Build parser for subcommand-driven CLI."""
+    """Build parser for management subcommands."""
     parser = argparse.ArgumentParser(
         prog="ausum",
         description="Transcribe and summarize audio/video files or YouTube videos using whisper.cpp + pi"
     )
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
-
-    dl_parser = subparsers.add_parser("dl", help="Process a URL or file directly")
-    dl_parser.add_argument("input", help="YouTube URL or path to local audio/video file")
-    dl_parser.add_argument(
-        "-d", "--outdir",
-        help="Output directory (overrides saved preference)"
-    )
-    dl_parser.add_argument(
-        "--read",
-        action="store_true",
-        help="Open the summary in mdv after it's created"
-    )
 
     subparsers.add_parser("poll", help="Process URLs queued from your phone")
     subparsers.add_parser("install-service", help="Install launchd plist for auto-polling")
@@ -609,7 +595,7 @@ def build_legacy_parser() -> argparse.ArgumentParser:
 def main() -> int:
     """Main CLI entry point."""
     argv = sys.argv[1:]
-    command_names = {"dl", "poll", "install-service", "uninstall-service"}
+    command_names = {"poll", "install-service", "uninstall-service"}
 
     if argv and argv[0] in command_names:
         args = build_command_parser().parse_args(argv)
@@ -620,10 +606,9 @@ def main() -> int:
             return cmd_install_service()
         if args.command == "uninstall-service":
             return cmd_uninstall_service()
-        return process_input(args.input, outdir=args.outdir, read_summary=args.read)
 
     if argv and argv[0] in {"-h", "--help"}:
-        build_command_parser().print_help()
+        build_legacy_parser().print_help()
         return 0
 
     args = build_legacy_parser().parse_args(argv)
