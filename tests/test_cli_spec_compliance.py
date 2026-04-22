@@ -185,6 +185,48 @@ def test_cmd_poll_skips_malformed_queue_items_and_payload(monkeypatch, capsys):
 
 
 
+def test_cmd_poll_treats_non_string_url_as_malformed(monkeypatch, capsys):
+    monkeypatch.setattr(
+        ausum,
+        "load_config",
+        lambda: {
+            "queue_url": "https://queue.example",
+            "queue_token": "secret",
+            "summary_dir": "/tmp/summaries",
+            "transcript_dir": "/tmp/transcripts",
+        },
+    )
+    monkeypatch.setattr(
+        ausum,
+        "queue_fetch",
+        lambda *_: [
+            {"id": "123", "url": 42},
+            {"id": "ok", "url": "https://example.com/video"},
+        ],
+    )
+
+    calls = {"processed": [], "deleted": []}
+    monkeypatch.setattr(
+        ausum,
+        "process_input",
+        lambda url, *_args, **_kwargs: calls["processed"].append(url) or 0,
+    )
+    monkeypatch.setattr(
+        ausum,
+        "queue_delete",
+        lambda *_args: calls["deleted"].append(_args[-1]),
+    )
+
+    assert ausum.cmd_poll() == 1
+    assert calls["processed"] == ["https://example.com/video"]
+    assert calls["deleted"] == ["ok"]
+
+    captured = capsys.readouterr()
+    assert "Skipping malformed queue item: {'id': '123', 'url': 42}" in captured.err
+    assert "Done: 1 processed, 1 errors." in captured.err
+
+
+
 def test_cmd_poll_returns_nonzero_on_partial_processing_failure(monkeypatch, capsys):
     monkeypatch.setattr(
         ausum,

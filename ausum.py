@@ -498,10 +498,16 @@ def cmd_poll() -> int:
         item_id = item.get("id")
         url = item.get("url")
 
-        if not item_id or not url:
+        if (
+            not item_id
+            or not isinstance(url, str)
+            or not url.strip()
+        ):
             print(f"Skipping malformed queue item: {item}", file=sys.stderr)
             errors += 1
             continue
+
+        url = url.strip()
 
         print(f"\n→ {url}", file=sys.stderr)
 
