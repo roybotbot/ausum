@@ -460,6 +460,18 @@ def cmd_poll() -> int:
         return 1
 
     try:
+        summary_dir, transcript_dir = resolve_dirs(config)
+        summary_dir.mkdir(parents=True, exist_ok=True)
+        transcript_dir.mkdir(parents=True, exist_ok=True)
+    except RuntimeError:
+        print(
+            "Error: summary_dir/transcript_dir not configured. "
+            "Configure summary_dir and transcript_dir before using poll/install-service.",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
         items = queue_fetch(queue_url, queue_token)
     except Exception as exc:
         print(f"Error fetching queue: {exc}", file=sys.stderr)

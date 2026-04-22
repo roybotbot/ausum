@@ -128,7 +128,12 @@ def test_cmd_poll_returns_nonzero_when_queue_delete_fails_after_processing(monke
     monkeypatch.setattr(
         ausum,
         "load_config",
-        lambda: {"queue_url": "https://queue.example", "queue_token": "secret"},
+        lambda: {
+            "queue_url": "https://queue.example",
+            "queue_token": "secret",
+            "summary_dir": "/tmp/summaries",
+            "transcript_dir": "/tmp/transcripts",
+        },
     )
     monkeypatch.setattr(ausum, "queue_fetch", lambda *_: [{"id": "123", "url": "https://example.com/video"}])
     monkeypatch.setattr(ausum, "process_input", lambda *_args, **_kwargs: 0)
@@ -150,7 +155,12 @@ def test_cmd_poll_skips_malformed_queue_items_and_payload(monkeypatch, capsys):
     monkeypatch.setattr(
         ausum,
         "load_config",
-        lambda: {"queue_url": "https://queue.example", "queue_token": "secret"},
+        lambda: {
+            "queue_url": "https://queue.example",
+            "queue_token": "secret",
+            "summary_dir": "/tmp/summaries",
+            "transcript_dir": "/tmp/transcripts",
+        },
     )
 
     fetches = iter([
@@ -179,7 +189,12 @@ def test_cmd_poll_returns_nonzero_on_partial_processing_failure(monkeypatch, cap
     monkeypatch.setattr(
         ausum,
         "load_config",
-        lambda: {"queue_url": "https://queue.example", "queue_token": "secret"},
+        lambda: {
+            "queue_url": "https://queue.example",
+            "queue_token": "secret",
+            "summary_dir": "/tmp/summaries",
+            "transcript_dir": "/tmp/transcripts",
+        },
     )
     monkeypatch.setattr(
         ausum,
@@ -203,3 +218,31 @@ def test_cmd_poll_returns_nonzero_on_partial_processing_failure(monkeypatch, cap
     captured = capsys.readouterr()
     assert "Failed with exit code 2, keeping item in queue" in captured.err
     assert "Done: 1 processed, 1 errors." in captured.err
+
+
+
+def test_cmd_poll_is_noninteractive_when_output_dirs_unconfigured(monkeypatch, capsys):
+    monkeypatch.setattr(
+        ausum,
+        "load_config",
+        lambda: {"queue_url": "https://queue.example", "queue_token": "secret"},
+    )
+
+    def fail_queue_fetch(*_args, **_kwargs):
+        raise AssertionError("queue_fetch should not be called when output dirs are missing")
+
+    def fail_process_input(*_args, **_kwargs):
+        raise AssertionError("process_input should not be called when output dirs are missing")
+
+    def fail_input(*_args, **_kwargs):
+        raise AssertionError("input should not be called during poll")
+
+    monkeypatch.setattr(ausum, "queue_fetch", fail_queue_fetch)
+    monkeypatch.setattr(ausum, "process_input", fail_process_input)
+    monkeypatch.setattr("builtins.input", fail_input)
+
+    assert ausum.cmd_poll() == 1
+
+    captured = capsys.readouterr()
+    assert "summary_dir/transcript_dir" in captured.err
+    assert "poll/install-service" in captured.err
