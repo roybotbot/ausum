@@ -500,18 +500,18 @@ def cmd_poll() -> int:
         item_id = item.get("id")
         url = item.get("url")
 
-        if item_id is None or not isinstance(url, str) or not url.strip():
-            print(f"Skipping malformed queue item: {item}", file=sys.stderr)
-            errors += 1
-            continue
-
-        if isinstance(item_id, str) and not item_id.strip():
+        if type(item_id) not in (str, int) or not isinstance(url, str):
             print(f"Skipping malformed queue item: {item}", file=sys.stderr)
             errors += 1
             continue
 
         normalized_item_id = str(item_id)
         url = url.strip()
+
+        if not normalized_item_id.strip() or not url or not is_url(url):
+            print(f"Skipping malformed queue item: {item}", file=sys.stderr)
+            errors += 1
+            continue
 
         print(f"\n→ {url}", file=sys.stderr)
 
