@@ -121,6 +121,32 @@ Summaries follow a structured format:
 
 Each summary includes a source link at the bottom.
 
+## Queue (iOS Shortcut)
+
+ausum can process URLs queued from your phone via a Cloudflare Worker.
+
+### Configure queue credentials
+
+Add to `~/.config/ausum/config.json`:
+
+```json
+{
+  "summary_dir": "~/Documents/Ausum",
+  "queue_url": "https://nom-noms.roy-natian.workers.dev/ausum",
+  "queue_token": "your-secret-token"
+}
+```
+
+### Commands
+
+```bash
+ausum poll              # Process all queued URLs now
+ausum install-service   # Auto-poll every 30 minutes (launchd)
+ausum uninstall-service # Remove auto-poll
+```
+
+Logs: `~/.config/ausum/poll.log`
+
 ## License
 
 MIT - See LICENSE file
