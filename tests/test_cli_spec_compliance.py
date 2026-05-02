@@ -382,6 +382,53 @@ def test_cmd_poll_is_noninteractive_when_output_dirs_unconfigured(monkeypatch, c
     assert "poll/install-service" in captured.err
 
 
+def test_cmd_poll_rejects_non_string_queue_config(monkeypatch, capsys):
+    monkeypatch.setattr(
+        ausum,
+        "load_config",
+        lambda: {
+            "queue_url": None,
+            "queue_token": "secret",
+            "summary_dir": "/tmp/summaries",
+            "transcript_dir": "/tmp/transcripts",
+        },
+    )
+
+    def fail_queue_fetch(*_args, **_kwargs):
+        raise AssertionError("queue_fetch should not be called when queue config is invalid")
+
+    monkeypatch.setattr(ausum, "queue_fetch", fail_queue_fetch)
+
+    assert ausum.cmd_poll() == 1
+
+    captured = capsys.readouterr()
+    assert "queue_url and queue_token not configured" in captured.err
+
+
+def test_cmd_poll_rejects_non_string_output_dirs_noninteractively(monkeypatch, capsys):
+    monkeypatch.setattr(
+        ausum,
+        "load_config",
+        lambda: {
+            "queue_url": "https://queue.example",
+            "queue_token": "secret",
+            "summary_dir": 123,
+            "transcript_dir": "/tmp/transcripts",
+        },
+    )
+
+    def fail_queue_fetch(*_args, **_kwargs):
+        raise AssertionError("queue_fetch should not be called when output dirs are invalid")
+
+    monkeypatch.setattr(ausum, "queue_fetch", fail_queue_fetch)
+
+    assert ausum.cmd_poll() == 1
+
+    captured = capsys.readouterr()
+    assert "summary_dir/transcript_dir" in captured.err
+    assert "poll/install-service" in captured.err
+
+
 def test_queue_delete_url_encodes_reserved_item_id(monkeypatch):
     captured = {}
 

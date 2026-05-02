@@ -450,8 +450,11 @@ def process_input(input_arg: str, outdir: str | None = None, read_summary: bool 
 def cmd_poll() -> int:
     """Process queued URLs using the standard ausum flow."""
     config = load_config()
-    queue_url = str(config.get("queue_url", "")).strip()
-    queue_token = str(config.get("queue_token", "")).strip()
+
+    raw_queue_url = config.get("queue_url")
+    raw_queue_token = config.get("queue_token")
+    queue_url = raw_queue_url.strip() if isinstance(raw_queue_url, str) else ""
+    queue_token = raw_queue_token.strip() if isinstance(raw_queue_token, str) else ""
 
     if not queue_url or not queue_token:
         print(
@@ -465,7 +468,7 @@ def cmd_poll() -> int:
         summary_dir, transcript_dir = resolve_dirs(config)
         summary_dir.mkdir(parents=True, exist_ok=True)
         transcript_dir.mkdir(parents=True, exist_ok=True)
-    except RuntimeError:
+    except (RuntimeError, TypeError, ValueError):
         print(
             "Error: summary_dir/transcript_dir not configured. "
             "Configure summary_dir and transcript_dir before using poll/install-service.",
