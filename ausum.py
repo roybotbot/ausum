@@ -339,11 +339,11 @@ def transcribe_audio(wav_path: Path) -> str:
 
 
 def summarize_transcript(transcript: str) -> str:
-    """Summarize transcript using pi via RPC mode with kimi-k2.5 model."""
+    """Summarize transcript using pi via RPC mode with kimi-k2.6 model."""
     prompt = f"{SUMMARY_INSTRUCTIONS}\n\nTranscript:\n\n{transcript}"
 
     proc = subprocess.Popen(
-        ["pi", "--model", "opencode-go/kimi-k2.5", "--mode", "rpc", "--no-session"],
+        ["pi", "--model", "opencode-go/kimi-k2.6", "--mode", "rpc", "--no-session"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         text=True
