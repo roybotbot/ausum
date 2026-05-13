@@ -20,8 +20,10 @@ POLL_LOG_PATH = Path.home() / ".config" / "ausum" / "poll.log"
 
 
 def format_clickable_path(path: Path) -> str:
-    """Return a shell-escaped path that terminals can usually click as one token."""
-    return re.sub(r'([\s\\"\'\(\)\[\]\{\}&;])', r'\\\1', str(path))
+    """Return a shell-escaped path wrapped in an OSC 8 file hyperlink."""
+    display_path = re.sub(r'([\s\\"\'\(\)\[\]\{\}&;])', r'\\\1', str(path))
+    file_uri = path.resolve(strict=False).as_uri()
+    return f"\033]8;;{file_uri}\033\\{display_path}\033]8;;\033\\"
 
 
 SUMMARY_INSTRUCTIONS = """Create a comprehensive markdown summary of the following transcript. Output ONLY the markdown summary, no meta-commentary.

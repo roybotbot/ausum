@@ -7,6 +7,21 @@ import pytest
 import ausum
 
 
+def test_format_clickable_path_wraps_escaped_display_path_in_file_hyperlink():
+    path = Path("/Users/roy/Library/Mobile Documents/Brain II/video (draft)-summary.md")
+
+    formatted = ausum.format_clickable_path(path)
+
+    assert formatted == (
+        "\033]8;;"
+        "file:///Users/roy/Library/Mobile%20Documents/Brain%20II/video%20%28draft%29-summary.md"
+        "\033\\"
+        "/Users/roy/Library/Mobile\\ Documents/Brain\\ II/video\\ \\(draft\\)-summary.md"
+        "\033]8;;\033\\"
+    )
+
+
+
 def test_subcommand_parser_exposes_only_required_subcommands():
     parser = ausum.build_command_parser()
     subparsers_action = next(
