@@ -51,6 +51,49 @@ def test_main_preserves_direct_invocation_without_dl(monkeypatch):
 
 
 
+def test_summarize_transcript_uses_deepseek_flash_free_model(monkeypatch):
+    popen_calls = []
+
+    class FakeStdin:
+        def write(self, _text):
+            pass
+
+        def flush(self):
+            pass
+
+    class FakeProc:
+        stdin = FakeStdin()
+        stdout = iter([
+            '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"summary"}}\n',
+            '{"type":"agent_end"}\n',
+        ])
+
+        def terminate(self):
+            pass
+
+        def wait(self):
+            pass
+
+    def fake_popen(args, **_kwargs):
+        popen_calls.append(args)
+        return FakeProc()
+
+    monkeypatch.setattr(ausum.subprocess, "Popen", fake_popen)
+
+    assert ausum.summarize_transcript("transcript") == "summary"
+    assert popen_calls[0] == [
+        "pi",
+        "--model",
+        "opencode/deepseek-v4-flash-free",
+        "--thinking",
+        "minimal",
+        "--mode",
+        "rpc",
+        "--no-session",
+    ]
+
+
+
 def test_main_help_exposes_subcommands_and_direct_cli_usage(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["ausum", "--help"])
 
