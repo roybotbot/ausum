@@ -123,6 +123,9 @@ def test_install_service_only_writes_plist(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(ausum, "_ausum_plist_path", lambda: plist_path)
     monkeypatch.setattr(ausum, "POLL_LOG_PATH", log_path)
     monkeypatch.setattr(ausum.subprocess, "run", fake_run)
+    monkeypatch.setenv("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+    monkeypatch.setenv("WHISPER_CLI", "/Users/roy/bin/whisper-cli")
+    monkeypatch.setenv("WHISPER_MODEL", "/Users/roy/models/ggml-large-v3-turbo.bin")
 
     assert ausum.cmd_install_service() == 0
 
@@ -131,6 +134,11 @@ def test_install_service_only_writes_plist(monkeypatch, tmp_path, capsys):
     assert plist["ProgramArguments"][-1] == "poll"
     assert plist["StandardOutPath"] == str(log_path)
     assert plist["StandardErrorPath"] == str(log_path)
+    assert plist["EnvironmentVariables"] == {
+        "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+        "WHISPER_CLI": "/Users/roy/bin/whisper-cli",
+        "WHISPER_MODEL": "/Users/roy/models/ggml-large-v3-turbo.bin",
+    }
     assert subprocess_calls == []
 
     captured = capsys.readouterr()

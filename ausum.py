@@ -574,6 +574,12 @@ def cmd_install_service() -> int:
     python_bin = Path(sys.executable).resolve()
     script_path = Path(__file__).resolve()
 
+    environment = {}
+    for name in ("PATH", "WHISPER_CLI", "WHISPER_MODEL"):
+        value = os.environ.get(name)
+        if value:
+            environment[name] = value
+
     plist = {
         "Label": POLL_LABEL,
         "ProgramArguments": [str(python_bin), str(script_path), "poll"],
@@ -582,6 +588,8 @@ def cmd_install_service() -> int:
         "StandardOutPath": str(POLL_LOG_PATH),
         "StandardErrorPath": str(POLL_LOG_PATH),
     }
+    if environment:
+        plist["EnvironmentVariables"] = environment
 
     plist_path.write_bytes(plistlib.dumps(plist))
     print(f"Installed: {plist_path}")
