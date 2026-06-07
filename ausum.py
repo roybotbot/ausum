@@ -345,7 +345,7 @@ def summarize_transcript(transcript: str) -> str:
     prompt = f"{SUMMARY_INSTRUCTIONS}\n\nTranscript:\n\n{transcript}"
 
     proc = subprocess.Popen(
-        ["pi", "--model", "opencode/deepseek-v4-flash-free", "--thinking", "minimal", "--mode", "rpc", "--no-session"],
+        ["pi", "--model", "opencode/minimax-m3-free", "--thinking", "minimal", "--mode", "rpc", "--no-session"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         text=True
